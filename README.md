@@ -1,1 +1,0 @@
-# IoT Waste Bin Optimization
