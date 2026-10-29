@@ -182,3 +182,107 @@ void loop() {
   Serial.println("--------------------------");
   delay(5000);
 }
+
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+#define TRIG_PIN 5
+#define ECHO_PIN 18
+
+const float BIN_EMPTY_DISTANCE_CM = 30.0;
+const float BIN_FULL_DISTANCE_CM = 3.0;
+
+// Apne Wi-Fi details yahan locally enter karo.
+// Real credentials ko GitHub par commit mat karna.
+const char* WIFI_SSID = "YOUR_WIFI_NAME";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+
+// Isse apne laptop ke Wi-Fi IPv4 address se replace karo.
+const char* SERVER_URL = "http://192.168.1.5:5000/api/bin";
+
+float readDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000UL);
+
+  if (duration == 0) return -1;
+
+  float distance = duration * 0.0343 / 2.0;
+
+  if (distance < 2 || distance > 400) return -1;
+  return distance;
+}
+
+float calculateFill(float distance) {
+  float fill =
+      (BIN_EMPTY_DISTANCE_CM - distance) /
+      (BIN_EMPTY_DISTANCE_CM - BIN_FULL_DISTANCE_CM) * 100.0;
+
+  return constrain(fill, 0.0, 100.0);
+}
+
+const char* getStatus(float fill) {
+  if (fill >= 80) return "FULL";
+  if (fill >= 60) return "HIGH";
+  if (fill >= 30) return "MEDIUM";
+  return "LOW";
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  digitalWrite(TRIG_PIN, LOW);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  Serial.println("Smart Waste Bin starting...");
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Waiting for Wi-Fi...");
+    delay(2000);
+    return;
+  }
+
+  float distance = readDistance();
+
+  if (distance < 0) {
+    Serial.println("Invalid sensor reading. Check wiring.");
+    delay(2000);
+    return;
+  }
+
+  float fill = calculateFill(distance);
+
+  Serial.printf("Distance: %.1f cm\n", distance);
+  Serial.printf("Fill level: %.1f%%\n", fill);
+  Serial.printf("Status: %s\n", getStatus(fill));
+
+  WiFiClient client;
+  HTTPClient http;
+
+  if (http.begin(client, SERVER_URL)) {
+    http.setTimeout(3000);
+    http.addHeader("Content-Type", "application/json");
+
+    String body = "{\"distance_cm\":" + String(distance, 1) +
+                  ",\"fill_percent\":" + String(fill, 1) + "}";
+
+    int response = http.POST(body);
+    Serial.printf("Dashboard HTTP response: %d\n", response);
+
+    http.end();
+  }
+
+  Serial.println("----------------------");
+  delay(5000);
+}
